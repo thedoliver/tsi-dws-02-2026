@@ -1,17 +1,18 @@
 package com.senac.tsi.MinhaPrimeiraApi;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.hateoas.CollectionModel;
+import org.springframework.hateoas.EntityModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Optional;
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 
 @RestController
 public class EmployeeController {
 
 
-    private EmployeeRepository repository;
+    private final EmployeeRepository repository;
 
     //padrao de projeto chamado FACADE
     public EmployeeController(EmployeeRepository repository) {
@@ -19,8 +20,17 @@ public class EmployeeController {
     }
 
     @GetMapping("/employee")
-    public List<Employee> getAll() {
-        return repository.findAll();
+    public CollectionModel<EntityModel<Employee>> getAll() {
+        var employees = repository.findAll()
+                .stream()
+                .map(employee -> EntityModel.of(employee,
+                            linkTo(methodOn(EmployeeController.class).getEmployeeById(employee.getId())).withSelfRel(),
+                            linkTo(methodOn(EmployeeController.class).getAll()).withRel("employees")))
+                .toList();
+
+        return CollectionModel.of(
+                employees,
+                linkTo(methodOn(EmployeeController.class).getAll()).withSelfRel());
     }
 
     @PostMapping("/employee")
@@ -29,32 +39,36 @@ public class EmployeeController {
     }
 
     @GetMapping("/employee/{id}")
-    public Employee getEmployeeById(@PathVariable long id){
-        return repository
+    public EntityModel<Employee> getEmployeeById(@PathVariable long id){
+        var employee = repository
                 .findById(id)
                 .orElseThrow(() ->
                         new EmployeeNotFoundException(id));
+        return EntityModel.of( employee,
+                linkTo(methodOn(EmployeeController.class).getEmployeeById(id)).withSelfRel(),
+                linkTo(methodOn(EmployeeController.class).getAll()).withRel("employees"));
     }
 
     @PutMapping("/employee/{id}")
-    public Optional<Employee> updateOrCreateEmployee(@RequestBody Employee newEmploye, @PathVariable long id){
-        return Optional.of(repository.findById(id).map(employee -> {
+    public Employee updateOrCreateEmployee(@RequestBody Employee newEmploye, @PathVariable long id){
+        return repository.findById(id).map(employee -> {
             employee.setName(newEmploye.getName());
             employee.setRole(newEmploye.getRole());
             return repository.save(employee);
-        }).orElseGet(() ->
-                repository.save(newEmploye)));
+        }).orElseGet(() -> {
+            newEmploye.setId(id);
+            return repository.save(newEmploye);
+        });
     }
 
     @DeleteMapping("/employee/{id}")
-    public ResponseEntity deleteEmployeeById(@PathVariable long id){
+    public ResponseEntity<?> deleteEmployeeById(@PathVariable long id){
         return repository.findById(id).map(
                 employee -> {
                     repository.deleteById(id);
-                    return ResponseEntity.status(204).build();
-                }).orElseGet(() -> ResponseEntity.status(404).build());
+                    return ResponseEntity.noContent().build();
+                }).orElseGet(() -> ResponseEntity.notFound().build());
 
     }
 
 }
-
